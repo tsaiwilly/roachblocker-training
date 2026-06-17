@@ -4,13 +4,11 @@ RoachBlocker 蟑螂偵測模型 - 訓練腳本
 這個腳本會自動：下載公開蟑螂資料集 → 合併並重新切分 → 訓練 YOLOv8n → 匯出成 ONNX
 
 使用前：
-  1. 安裝相依套件（見 README 或使用說明分頁）
+  1. 安裝相依套件：pip install -r requirements.txt
   2. 把下方的 ROBOFLOW_API_KEY 換成你自己的 key（免費申請：https://roboflow.com）
-  3. 執行：  python train_roach.py
+  3. 執行：  python train_roach.py   （Mac/Linux 用 python3）
 
-完成後會在同資料夾產生 roach.onnx，
-把它複製到擴充功能的 assets/ 資料夾、覆蓋原本的 roach.onnx 即可。
-
+完成後會在同資料夾產生 roach.onnx。
 支援：Windows / macOS / Linux
 """
 import os
@@ -134,7 +132,7 @@ def resplit_and_merge(downloaded):
 def train(data_yaml):
     print("=" * 56, "\n訓練 YOLOv8n\n", "=" * 56)
     model = YOLO("yolov8n.pt")
-    # device 留空 → ultralytics 自動選擇（有 NVIDIA GPU 用 GPU，否則用 CPU）
+    # device 留空 → ultralytics 自動選擇（有 NVIDIA GPU 用 GPU，否則用 CPU / Mac MPS）
     results = model.train(
         data=data_yaml,
         epochs=EPOCHS,
@@ -159,7 +157,7 @@ def export_onnx(best_pt):
     shutil.copy(onnx_src, onnx_dst)
     size_mb = os.path.getsize(onnx_dst) / 1024 / 1024
     print(f"完成！ONNX 已存到：{onnx_dst}  ({size_mb:.1f} MB)")
-    print("把這個 roach.onnx 複製到擴充功能的 assets/ 資料夾覆蓋原檔即可。")
+    print("把這個 roach.onnx 放進擴充功能的 assets/ 資料夾覆蓋原檔即可。")
 
 
 if __name__ == "__main__":
