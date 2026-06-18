@@ -1,5 +1,12 @@
-ultralytics
+# RoachBlocker training dependencies
+# YOLO11 requires ultralytics >= 8.3.0
+ultralytics>=8.3.0
 roboflow
-onnx
+onnx>=1.12.0
 onnxruntime
-onnxslim
+onnxslim>=0.1.82
+pyyaml
+
+# NOTE: Install PyTorch separately based on your hardware (see README step 3)
+# NVIDIA GPU: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# Mac / no GPU: pip install torch torchvision

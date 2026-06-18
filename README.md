@@ -1,18 +1,19 @@
 # RoachBlocker 訓練腳本
 
-訓練 RoachBlocker Chrome 擴充功能所用的 YOLOv8n 蟑螂偵測模型。
-這版加入「負樣本」來降低誤判（false positive）。
+訓練 RoachBlocker Chrome 擴充功能所用的蟑螂偵測模型。
+目前使用 **YOLO11s** 架構，並加入「負樣本」來降低誤判（false positive）。
 
 ---
 
 ## 目錄
 1. [這個腳本會做什麼](#這個腳本會做什麼)
-2. [電腦需求](#電腦需求)
-3. [安裝步驟](#安裝步驟)
-4. [執行訓練](#執行訓練)
-5. [替換模型到擴充功能](#替換模型到擴充功能)
-6. [調整與自訂](#調整與自訂)
-7. [常見問題排除](#常見問題排除)
+2. [關於模型架構](#關於模型架構)
+3. [電腦需求](#電腦需求)
+4. [安裝步驟](#安裝步驟)
+5. [執行訓練](#執行訓練)
+6. [替換模型到擴充功能](#替換模型到擴充功能)
+7. [調整與自訂](#調整與自訂)
+8. [常見問題排除](#常見問題排除)
 
 ---
 
@@ -24,7 +25,7 @@
 2. **下載其他昆蟲**（蜘蛛 / 蠍子等）→ 移除標註，當背景圖
 3. **下載 COCO 一般物體**（約 1500 張日常物體）→ 當背景圖
 4. **合併、重新切分** 成 80% 訓練 / 20% 驗證
-5. **訓練** YOLOv8n
+5. **訓練** YOLO11s
 6. **匯出** 成 `roach.onnx`
 
 ### 為什麼要負樣本？
@@ -38,13 +39,35 @@ hard negative mining，比單純增加蟑螂圖有效得多。
 
 ---
 
+## 關於模型架構
+
+腳本預設使用 **YOLO11s**（small）。可在腳本最上方的 `MODEL_ARCH` 切換：
+
+| 架構 | 參數量 | ONNX 大小 | 準確率 | 適用情境 |
+|------|--------|-----------|--------|----------|
+| `yolo11n.pt` | ~2.6M | ~10 MB | 普通 | 追求最小檔案、最快載入 |
+| `yolo11s.pt`（預設） | ~9.4M | ~38 MB | 較好 | **準確率與大小的平衡** |
+| `yolov8n.pt` | ~3.0M | ~12 MB | 普通 | 舊版相容 |
+| `yolov8s.pt` | ~11.2M | ~43 MB | 較好 | 舊版相容 |
+
+> 💡 **為什麼用 YOLO11s 而非 nano？**
+> nano 模型容量小，面對「種類繁多」的蟑螂時容易學不全、導致漏抓。
+> small 版容量足夠，準確率明顯更好。YOLO11s 又比 YOLOv8s 更準、參數更少，是目前的最佳選擇。
+> 代價是 ONNX 檔較大（約 38MB），擴充功能首次載入會稍慢，但會被快取。
+
+> ⚠️ 所有 YOLO 架構匯出的 ONNX 輸出格式相同（`[1, 5, 3549]`），
+> 因此**換架構不需要改擴充功能的程式碼**，只要替換 `roach.onnx` 即可。
+
+---
+
 ## 電腦需求
 
 | 項目 | 需求 |
 |------|------|
 | 作業系統 | Windows 10/11、macOS、Linux 皆可 |
 | Python | 3.9 ～ 3.12（建議 3.11） |
-| 顯示卡 | 有 NVIDIA GPU 最佳（訓練約 2~3 小時）；無 GPU 用 CPU 會慢很多 |
+| 顯示卡 | 有 NVIDIA GPU 最佳（訓練約 2.5~3.5 小時）；無 GPU 用 CPU 會慢很多 |
+| 顯存 | 建議 6GB 以上跑 YOLO11s；4GB 需把 `BATCH` 設為 8 或 4 |
 | 硬碟空間 | 約 7 GB（含 COCO 與其他資料集） |
 | 記憶體 | 建議 8 GB 以上 |
 
@@ -68,7 +91,7 @@ python --version
 
 ### 2. 進入這個資料夾並建立虛擬環境
 
-> 虛擬環境（venv）能把套件裝在獨立空間，避免汙染系統 Python，也避免不同專案互相干擾。
+> 虛擬環境（venv）能把套件裝在獨立空間，避免汙染系統 Python。
 
 **Windows（PowerShell）**
 ```powershell
@@ -151,11 +174,11 @@ python train_roach.py      # Windows
 python3 train_roach.py     # macOS / Linux
 ```
 
-腳本會自動下載資料、合併、訓練、匯出。第一次會下載約 1GB 的 COCO，請耐心等候。
+腳本會自動下載資料、合併、訓練、匯出。第一次會下載約 1GB 的 COCO 與 YOLO11s 權重，請耐心等候。
 訓練結束後，會在這個資料夾產生 **`roach.onnx`**，並印出準確率（mAP50）。
 
-> ✅ **判斷成功**：mAP50 > 0.85 算健康。但加入負樣本後這個數字可能略降是正常的
-> （任務變難了）。真正要看的是**實際網頁測試時誤判有沒有變少**。
+> ✅ **驗收重點**：mAP50 數字僅供參考。真正要看的是**實際網頁測試時，漏抓與誤判有沒有改善**。
+> 把新模型裝進擴充功能後，去之前會出問題的網站實測，才是最終驗收。
 
 ---
 
@@ -170,6 +193,8 @@ python3 train_roach.py     # macOS / Linux
 4. 點「載入未封裝項目」→ 選擇剛才放好模型的資料夾
 5. 開 F12 → Console，看到 `✅ 本地模型載入完成` 即成功
 
+> 💡 YOLO11s 的 ONNX 約 38MB，首次載入會比舊版（12MB）慢數秒，屬正常現象，之後會快取。
+
 ---
 
 ## 調整與自訂
@@ -178,10 +203,11 @@ python3 train_roach.py     # macOS / Linux
 
 | 參數 | 說明 |
 |------|------|
+| `MODEL_ARCH` | 模型架構（預設 `yolo11s.pt`，見上方架構表） |
+| `BATCH` | 批次大小（預設 8；顯存不足時改 4，充足時可調高加速） |
 | `MAX_NEG_INSECTS` | 其他昆蟲負樣本上限（預設 1500） |
 | `MAX_NEG_COCO` | COCO 背景負樣本上限（預設 1500） |
 | `EPOCHS` | 訓練輪數（預設 100） |
-| `BATCH` | 批次大小（預設 16，GPU 記憶體不足時改小，如 8 或 4） |
 | `IMG_SIZE` | 輸入尺寸（預設 416，**勿改**，除非同步改擴充功能的 `roach-inference.mjs`） |
 
 **負樣本怎麼調：**
@@ -192,6 +218,10 @@ python3 train_roach.py     # macOS / Linux
 編輯 `POSITIVE_DATASETS`（蟑螂）與 `NEGATIVE_INSECT_DATASETS`（其他昆蟲）清單。
 到 [Roboflow Universe](https://universe.roboflow.com/search?q=class%3Acockroach) 搜尋資料集，
 點進去從網址列取得 `workspace` 與 `project` 名稱，照格式新增一行。
+
+> 💡 **提升真實場景準確率最有效的方法**：蒐集你實際會遇到的蟑螂圖
+> （卡通、迷因、廣告、各種角度），在 Roboflow 標註後加入正樣本清單。
+> 這種「貼近真實使用」的資料，少量也勝過大量的標準照。
 
 ---
 
@@ -211,6 +241,10 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 ```
 **務必兩個一起裝**，確保版本後綴一致。
 
+### ❌ `CUDA out of memory`
+顯存不足（YOLO11s 比 nano 吃更多）。打開 `train_roach.py`，把 `BATCH = 8` 改成 `4` 再重跑。
+4GB 顯卡跑 small 模型較吃緊，這很常見。
+
 ### ❌ 啟用 venv 時出現「無法載入...因為執行原則」（Windows）
 PowerShell 預設禁止執行腳本。先跑：
 ```powershell
@@ -218,16 +252,19 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 再重新啟用 venv。
 
-### ❌ `CUDA out of memory`
-GPU 記憶體不足。打開 `train_roach.py`，把 `BATCH = 16` 改小（如 8 或 4）再重跑。
+### ❌ 找不到 `yolo11s.pt` 或下載失敗
+需要 `ultralytics >= 8.3.0` 才支援 YOLO11。先更新：
+```
+pip install -U ultralytics
+```
 
-### ❌ 訓練卡在下載 `yolo26n.pt` 或 AMP 檢查報錯
+### ❌ 訓練卡在下載權重或 AMP 檢查報錯
 某些環境的自動混合精度（AMP）檢查會出問題。在 `train()` 的
 `model.train(...)` 參數中加上 `amp=False,` 即可跳過：
 ```python
 results = model.train(
     data=data_yaml, epochs=EPOCHS, imgsz=IMG_SIZE, batch=BATCH,
-    patience=30, project="roach_blocker", name="yolov8n_v2", exist_ok=True,
+    patience=30, project="roach_blocker", name="yolo11s_v3", exist_ok=True,
     amp=False,   # 加這行
 )
 ```
@@ -238,16 +275,19 @@ results = model.train(
 
 ### ⚠️ 某個資料集下載失敗
 腳本會自動跳過下載失敗的資料集，用其他成功的繼續，不會中斷。
-若想換資料集，編輯 `POSITIVE_DATASETS` / `NEGATIVE_INSECT_DATASETS` 清單。
 
 ### ⚠️ 想重新訓練但不想重新下載資料
 已下載的資料在 `datasets/`、`negatives/`、`merged_roach/` 資料夾中，
 腳本會沿用既有檔案。若想完全重來，刪掉這幾個資料夾再執行。
 
+### ⚠️ 換了模型架構後，擴充功能要改嗎？
+不用。所有 YOLO 架構的 ONNX 輸出格式相同，只要替換 `roach.onnx` 即可，
+擴充功能的程式碼不需任何修改。
+
 ---
 
 ## 相關連結
 - [Roboflow Universe（找資料集）](https://universe.roboflow.com/search?q=class%3Acockroach)
-- [YOLOv8 官方文件](https://docs.ultralytics.com)
+- [Ultralytics YOLO11 文件](https://docs.ultralytics.com)
 - [Google Colab（線上 GPU）](https://colab.research.google.com)
 - [下載 Python](https://www.python.org/downloads/)

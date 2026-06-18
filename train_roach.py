@@ -34,7 +34,8 @@ ROBOFLOW_API_KEY = "在這裡貼上你的_ROBOFLOW_API_KEY"
 VAL_RATIO = 0.2
 EPOCHS = 100
 IMG_SIZE = 416
-BATCH = 16
+BATCH = 8                  # 4GB 顯卡建議 8（OOM 再降到 4）
+MODEL_ARCH = "yolo11s.pt"  # YOLO11 small：比 YOLOv8s 更準、參數更少（ONNX 約 38MB）
 
 # 負樣本上限：避免負樣本壓過正樣本，建議負樣本總數 ≈ 正樣本數量的 0.5~1 倍
 MAX_NEG_INSECTS = 1500     # 其他昆蟲負樣本上限
@@ -225,11 +226,11 @@ def build_dataset(pos_pairs, neg_imgs):
 # 5. 訓練 + 匯出
 # ============================================================
 def train(data_yaml):
-    print("=" * 56, "\n訓練 YOLOv8n\n", "=" * 56)
-    model = YOLO("yolov8n.pt")
+    print("=" * 56, "\n訓練", MODEL_ARCH, "\n", "=" * 56)
+    model = YOLO(MODEL_ARCH)
     results = model.train(
         data=data_yaml, epochs=EPOCHS, imgsz=IMG_SIZE, batch=BATCH,
-        patience=30, project="roach_blocker", name="yolov8n_v2", exist_ok=True,
+        patience=30, project="roach_blocker", name="yolo11s_v3", exist_ok=True,
     )
     return os.path.join(str(results.save_dir), "weights", "best.pt")
 
