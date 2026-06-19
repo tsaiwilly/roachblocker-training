@@ -37,21 +37,45 @@ IMG_SIZE = 416
 BATCH = 16                 # 11n 較輕量；OOM 再降到 8
 MODEL_ARCH = "yolo11n.pt"  # YOLO11 nano（ONNX 約 10MB）
 
-# 負樣本上限
-MAX_NEG_INSECTS = 1200
-MAX_NEG_COCO = 1200
+# 負樣本上限（只限制負樣本；正樣本一律全收，不設上限）
+MAX_NEG_INSECTS = 3000
+MAX_NEG_COCO = 3000
 
 # --- 正樣本：標準蟑螂資料集 (workspace, project, version) ---
+# 註：已移除 qewr65qwe4r12s1af56-wyjxp/cockroach —— 它的類別其實是
+#     Tribolium castaneum（赤擬穀盜，一種甲蟲，不是蟑螂），會污染模型。
 POSITIVE_DATASETS = [
     ("adriann", "cockroach-gkzut", 1),
-    ("roach", "roach_detection", 1),
-    ("cc-bhzoo", "cockroach-u5xi2", 1),
-    ("qewr65qwe4r12s1af56-wyjxp", "cockroach", 1),
+    #以下標籤不確定但應該都是蟑螂
+    ("school-project-cwbwv", "esp3902", 1), 
+    ("guet-wnqb9", "-0ujgl", 3),
+    ("yun-oykhq", "cockroach3-iwlo0", 1),
 ]
 
-# --- 綜合昆蟲資料集（會逐張萃取正樣本、篩選純背景）---
+# --- 綜合昆蟲/害蟲資料集（會逐張萃取正樣本、篩選純背景）---
+# 這些含多種害蟲，腳本會自動分流：含蟑螂→正樣本、不含→背景負樣本
 MIXED_INSECT_DATASETS = [
     ("new-workspace-v84mt", "cockroach-spider-scorpion-detection", 1),
+    ("tini", "pest-detection-0sv8g", 5),
+    ("air-uni-i206m", "pest-detection-yu4hv", 7),
+    ("pestmodel", "pest-detector-dataset", 5),
+    ("roboflow-public", "ip102-insect-pest-recognition", 2),
+    ("purizumo", "pestguard", 1),                          # ~20 類含 cockroach，Public Domain
+    ("jose-rizal-university", "pest-detection-2", 5),      # 703 張，含 Cockroach
+    # 以下為使用者提供，跑時看 log 的「判定為蟑螂的類別」確認是否含蟑螂：
+    ("insects-gt20t", "dataset-zxann", 1),
+    ("ai-camp-project", "dynamite-duelers-project", 42),
+    ("mindcue", "combo-dataset", 2),
+    ("sams-sgift", "pest-detection-qbalv", 4),
+    ("lab-889z6", "1600_1200", 2),
+    ("patronusmobiles-workspace", "pest-detection-vuziq", 1),
+    ("s-workspace-ddomg", "my-first-project_mix_mechanism", 2),
+    ("mariam-eq11t", "insectdetectionn", 1),
+    ("126-thanakool-wongsutthikul", "kusk-ai-pest-detect-2n8qu", 3),
+    ("purizumo", "pestguard", 2),
+    ("tiger-emltm", "insects-9yf6s", 2),
+    ("cc-bhzoo", "cockroach-u5xi2", 1),
+    ("roach", "roach_detection", 5),
 ]
 
 random.seed(42)
@@ -59,6 +83,47 @@ WORK_DIR = os.path.dirname(os.path.abspath(__file__))
 RAW_DIR = os.path.join(WORK_DIR, "datasets")
 NEG_DIR = os.path.join(WORK_DIR, "negatives")
 MERGED = os.path.join(WORK_DIR, "merged_roach")
+
+# 判斷某類別名是否屬於蟑螂（全部轉小寫比對）
+# 涵蓋：cockroach、roach、nymph（蟑螂若蟲）、蟑螂、學名 periplaneta/blattella 等
+# 排除：tribolium（赤擬穀盜，非蟑螂）等易誤判詞
+ROACH_KEYWORDS = ["cockroach", "Cockroach", "roach", "nymph", "蟑螂", "periplaneta", "blattodea", "blattella", "blatta", "American Cockroach"]
+ROACH_EXCLUDE = ["tribolium", "approach", "broach"]
+
+# 模糊類別：名稱無法判斷裡面是不是蟑螂。
+# 只要一張圖含有任一模糊類別，整張圖「直接丟棄」——
+# 不進正樣本（不確定是蟑螂）也不進負樣本（可能其實有蟑螂，當背景會污染訓練）。
+AMBIGUOUS_KEYWORDS = [
+    # 泛稱（可能是任何東西）
+    "object", "objects", "object detection", "thing", "things", "item", "items",
+    "target", "targets", "detection", "detect", "detected", "roi",
+    # 昆蟲/害蟲泛稱（可能包含蟑螂但沒明說）
+    "insect", "insects", "pest", "pests", "bug", "bugs", "creature", "creatures",
+    "animal", "animals", "vermin", "critter",
+    # 占位／未命名
+    "unknown", "unlabeled", "unlabelled", "label", "labels", "none", "other",
+    "others", "misc", "miscellaneous", "mode", "model", "class", "default", "test",
+]
+# 這些「短的純占位詞」用完全相符比對，避免誤砍正常字（例如 na 不該砍到 banana）
+AMBIGUOUS_EXACT = {"na", "n/a", "nan", "0", "1", "2", "3", "obj", "cls", "id"}
+
+
+def is_roach_class(name):
+    n = str(name).lower().strip()
+    if any(ex in n for ex in ROACH_EXCLUDE):
+        return False
+    return any(kw in n for kw in ROACH_KEYWORDS)
+
+
+def is_ambiguous_class(name):
+    """名稱模糊、無法判斷是否含蟑螂 → 該圖整張丟棄較安全"""
+    n = str(name).lower().strip()
+    # 已明確是蟑螂的，不算模糊
+    if is_roach_class(n):
+        return False
+    if n in AMBIGUOUS_EXACT:
+        return True
+    return any(kw in n for kw in AMBIGUOUS_KEYWORDS)
 
 
 def check_api_key():
@@ -102,24 +167,34 @@ def process_mixed_insects(rf):
             )
             tag = proj.replace(" ", "_")
 
-            # 1. 從 data.yaml 找出哪些 class id 屬於蟑螂
+            # 1. 從 data.yaml 找出哪些 class id 屬於蟑螂 / 屬於模糊類別
             roach_ids = set()
+            ambiguous_ids = set()
             yaml_path = os.path.join(d.location, "data.yaml")
+            roach_names = []
+            ambiguous_names = []
             if os.path.exists(yaml_path):
                 with open(yaml_path, "r", encoding="utf-8") as f:
                     data = yaml.safe_load(f)
                     names = data.get("names", [])
-                    if isinstance(names, list):
-                        for idx, name in enumerate(names):
-                            if "roach" in str(name).lower():
-                                roach_ids.add(str(idx))
-                    elif isinstance(names, dict):
-                        for idx, name in names.items():
-                            if "roach" in str(name).lower():
-                                roach_ids.add(str(idx))
-            print(f"  [分析] 蟑螂的 Class ID: {sorted(roach_ids) or '（無，全部當背景）'}")
+                    pairs = enumerate(names) if isinstance(names, list) else (names.items() if isinstance(names, dict) else [])
+                    for idx, name in pairs:
+                        if is_roach_class(name):
+                            roach_ids.add(str(idx))
+                            roach_names.append(name)
+                        elif is_ambiguous_class(name):
+                            ambiguous_ids.add(str(idx))
+                            ambiguous_names.append(name)
+            print(f"  [分析] 此資料集所有類別: {names if names else '（讀不到）'}")
+            print(f"  [分析] 判定為蟑螂的類別: {roach_names or '（無）'} → ID {sorted(roach_ids) or '無'}")
+            if ambiguous_names:
+                print(f"  [分析] 模糊類別（含此類的圖將整張丟棄）: {ambiguous_names} → ID {sorted(ambiguous_ids)}")
 
-            # 2. 逐張分流
+            # 2. 逐張分流（三選一）：
+            #    - 含蟑螂 → 正樣本（清洗標籤，只留蟑螂）
+            #    - 含模糊類別 → 整張丟棄（不確定有沒有蟑螂，當背景會污染）
+            #    - 其餘（明確的其他生物）→ 純背景負樣本
+            ds_pos, ds_neg, ds_skip = 0, 0, 0
             for img in glob.glob(f"{d.location}/*/images/*"):
                 split_dir = os.path.dirname(os.path.dirname(img))
                 base = os.path.basename(img)
@@ -127,22 +202,32 @@ def process_mixed_insects(rf):
                 lbl = os.path.join(split_dir, "labels", stem + ".txt")
 
                 has_roach = False
-                if os.path.exists(lbl) and roach_ids:
+                has_ambiguous = False
+                if os.path.exists(lbl):
                     with open(lbl, "r") as f:
                         for line in f:
                             parts = line.strip().split()
-                            if parts and parts[0] in roach_ids:
+                            if not parts:
+                                continue
+                            cid = parts[0]
+                            if cid in roach_ids:
                                 has_roach = True
-                                break
+                            elif cid in ambiguous_ids:
+                                has_ambiguous = True
 
                 if has_roach:
-                    # 含蟑螂 → 正樣本（需清洗：只留蟑螂標籤）
+                    # 含蟑螂 → 正樣本（清洗：只留蟑螂標籤），全收不設限
                     mixed_pos_pairs.append((img, lbl, f"pos_extracted_{tag}_{base}", True, roach_ids))
+                    ds_pos += 1
+                elif has_ambiguous:
+                    # 含模糊類別、又無明確蟑螂 → 安全起見整張丟棄
+                    ds_skip += 1
                 else:
-                    # 不含蟑螂 → 純背景負樣本
+                    # 只有明確的其他生物 → 純背景負樣本
                     pure_neg_imgs.append(img)
+                    ds_neg += 1
 
-            print(f"  [結果] 萃取正樣本 {len(mixed_pos_pairs)} 張，純背景 {len(pure_neg_imgs)} 張")
+            print(f"  [結果] 此資料集 → 正樣本 {ds_pos} 張，背景負樣本 {ds_neg} 張，丟棄(模糊) {ds_skip} 張")
         except Exception as e:
             print(f"  跳過 ({proj}): {str(e)[:100]}")
 
@@ -293,13 +378,29 @@ def export_onnx(best_pt):
 
 
 if __name__ == "__main__":
+    import sys
+    # 探測模式：只下載資料集並印出類別/正樣本統計，不訓練。
+    # 用法：python train_roach.py --probe
+    # 目的：先確認哪些資料集能用、含不含蟑螂，再決定要不要花時間訓練。
+    PROBE_ONLY = "--probe" in sys.argv
+
     check_api_key()
     rf = Roboflow(api_key=ROBOFLOW_API_KEY)
 
     pos = download_positives(rf)
     mixed_pos_pairs, neg_insects = process_mixed_insects(rf)
-    neg_coco = download_negative_coco()
 
+    print("\n資料流統計（正樣本部分）：")
+    print(f"  - 標準集正樣本: {len(collect_positive_pairs(pos))} 張")
+    print(f"  - 昆蟲/害蟲集萃取正樣本: {len(mixed_pos_pairs)} 張")
+
+    if PROBE_ONLY:
+        print("\n[探測模式] 只檢查資料集，不訓練。")
+        print("請往上檢視每個資料集的『判定為蟑螂的類別』與『正樣本張數』，")
+        print("把沒貢獻正樣本或下載失敗的資料集從清單移除後，再正式執行訓練。")
+        raise SystemExit(0)
+
+    neg_coco = download_negative_coco()
     pos_pairs = collect_positive_pairs(pos) + mixed_pos_pairs
     neg_all = neg_insects + neg_coco
 

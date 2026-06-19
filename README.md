@@ -25,7 +25,7 @@
 2. **處理昆蟲綜合資料集**：逐張檢查標註並分流
    - 含蟑螂的圖 → 移入正樣本，只保留蟑螂標籤
    - 不含蟑螂的圖 → 當純背景負樣本
-3. **下載 COCO 一般物體**（約 1200 張）→ 當背景負樣本
+3. **下載 COCO 一般物體**（約 3000 張）→ 當背景負樣本
 4. **合併、重新切分** 成 80% 訓練 / 20% 驗證
 5. **訓練** YOLO11n
 6. **匯出** 成 `roach.onnx`
@@ -47,6 +47,23 @@
 （只留蟑螂標籤），不含的才當背景。修正後 mAP50 從卡關的 0.948 提升到 0.968，
 證實了標籤污染才是先前的真正瓶頸。
 
+### 類別名稱辨識（三分類，避免污染）
+
+不同資料集對「蟑螂」的命名不一致：cockroach、Cockroach、nymph（蟑螂若蟲）、
+蟑螂、學名 Periplaneta 等。腳本把每個類別分成三種處理：
+
+1. **明確是蟑螂**（`ROACH_KEYWORDS`）→ 該圖當正樣本
+2. **模糊類別**（`AMBIGUOUS_KEYWORDS`，如 object、insect、pest、bug、unknown、
+   數字編號等無法判斷是不是蟑螂的名稱）→ **含此類的圖整張丟棄**
+3. **明確的其他生物**（spider、rat、caterpillar 等）→ 當背景負樣本
+
+**為什麼模糊類別要丟棄？** 假設某資料集有個類別叫 `object`，而它標的其實是蟑螂，
+若把這張圖當背景，等於告訴模型「這隻蟑螂不是蟑螂」，造成漏抓。由於無法從名稱
+確定 `object` 是不是蟑螂，最安全的做法是整張丟棄——不當正樣本也不當背景。
+
+執行時 log 會印出每個資料集的「判定為蟑螂的類別」「模糊類別」「丟棄張數」，方便檢查。
+若發現某資料集的蟑螂類別沒被認出，把名稱加進 `ROACH_KEYWORDS`；
+若有正常類別被誤判為模糊，調整 `AMBIGUOUS_KEYWORDS`。
 ---
 
 ## 關於模型架構
@@ -170,7 +187,26 @@ ROBOFLOW_API_KEY = "在這裡貼上你的_ROBOFLOW_API_KEY"
 
 > ⚠️ API Key 等同密碼，請勿把填好 key 的腳本上傳到公開的 GitHub 或分享給他人。
 
-### 2. 執行
+### 2.（建議）先用探測模式確認資料集
+
+正式訓練前，先跑一次「探測模式」——它只下載資料集、印出每個的類別與正樣本張數，
+**不訓練**，幾分鐘就跑完。這樣能先確認哪些資料集能用、含不含蟑螂，
+避免花好幾小時訓練後才發現某些資料集沒貢獻或下載失敗。
+
+```
+python train_roach.py --probe      # Windows
+python3 train_roach.py --probe     # macOS / Linux
+```
+
+看 log 裡每個資料集的：
+- `判定為蟑螂的類別` → 確認有沒有認出蟑螂
+- `此資料集 → 正樣本 X 張` → 確認有沒有貢獻正樣本
+
+把「正樣本 0 張」或「下載失敗（跳過）」的資料集從 `MIXED_INSECT_DATASETS` 移除，
+若某資料集明明有蟑螂卻沒被認出，把它的類別名關鍵字加進 `ROACH_KEYWORDS`。
+調整好之後再執行下面的正式訓練。
+
+### 3. 正式執行
 
 確認 venv 已啟用（開頭有 `(venv)`），然後：
 
@@ -208,8 +244,8 @@ python3 train_roach.py     # macOS / Linux
 |------|------|
 | `MODEL_ARCH` | 模型架構（預設 `yolo11n.pt`，見上方架構表） |
 | `BATCH` | 批次大小（預設 16；顯存不足時改 8 或 4） |
-| `MAX_NEG_INSECTS` | 其他昆蟲負樣本上限（預設 1200） |
-| `MAX_NEG_COCO` | COCO 背景負樣本上限（預設 1200） |
+| `MAX_NEG_INSECTS` | 其他昆蟲負樣本上限（預設 3000） |
+| `MAX_NEG_COCO` | COCO 背景負樣本上限（預設 3000） |
 | `EPOCHS` | 訓練輪數（預設 100） |
 | `IMG_SIZE` | 輸入尺寸（預設 416，**勿改**，除非同步改擴充功能的 `roach-inference.mjs`） |
 
@@ -218,7 +254,8 @@ python3 train_roach.py     # macOS / Linux
 - 開始漏抓 → 調低 `MAX_NEG_*`（負樣本太多會讓模型太保守）
 
 **加入更多資料集：**
-編輯 `POSITIVE_DATASETS`（蟑螂）與 `NEGATIVE_INSECT_DATASETS`（其他昆蟲）清單。
+編輯 `POSITIVE_DATASETS`（純蟑螂）與 `MIXED_INSECT_DATASETS`（綜合害蟲，會自動分流）清單。
+腳本已內建多個查證存在的害蟲資料集（IP102、pest-detection 等），會自動萃取其中的蟑螂當正樣本、其餘當背景。
 到 [Roboflow Universe](https://universe.roboflow.com/search?q=class%3Acockroach) 搜尋資料集，
 點進去從網址列取得 `workspace` 與 `project` 名稱，照格式新增一行。
 
