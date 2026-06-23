@@ -87,9 +87,9 @@ MIXED_INSECT_DATASETS = [
 # 用途：壓低「把木紋、石頭、地毯、商標等誤判成蟑螂」的情況。
 # 這些資料集裡不會有蟑螂，所以整批當純背景負樣本即可。
 HARD_BG_DATASETS = [
-    ("data6000", "brand-logo-recognition-yolov8", 1),   # 503 張品牌商標
-    ("fyp1-aidez", "logo-juzxl", 1),                    # 5440 張各種logo
-    ("ai-dataset-8dqwo", "carpet-rjju3", 2),            # 201 張地毯紋理
+    ("data6000", "brand-logo-recognition-yolov8", 1),            # 503 張品牌商標
+    ("md--mubin-ul-islam-chowdhury", "rock-detection-lpc70", 2), # 2027 張石頭
+    ("ai-dataset-8dqwo", "carpet-rjju3", 2),                     # 201 張地毯紋理
 ]
 # 本地紋理資料夾：把你自己蒐集的木紋/石頭/大理石/布料等圖片
 # 放進腳本同層的 my_textures/ 資料夾，會自動當背景負樣本（最對症）。
