@@ -40,14 +40,18 @@ MODEL_ARCH = "yolo11n.pt"  # YOLO11 nano（ONNX 約 10MB）
 # 負樣本上限（只限制負樣本；正樣本一律全收，不設上限）
 MAX_NEG_INSECTS = 3000
 MAX_NEG_COCO = 3000
+MAX_NEG_HARDBG = 2000      # 第三類負樣本（商標 + 紋理）上限
 
 # --- 正樣本：標準蟑螂資料集 (workspace, project, version) ---
 # 註：已移除 qewr65qwe4r12s1af56-wyjxp/cockroach —— 它的類別其實是
 #     Tribolium castaneum（赤擬穀盜，一種甲蟲，不是蟑螂），會污染模型。
+# 注意：download_positives 會把這些資料集的「所有類別」一律當成蟑螂（class 0）。
+#       因此這裡只能放「人工確認過、整個資料集都是蟑螂」的來源。
+#       下面 esp3902 / -0ujgl / cockroach3 標籤命名雖不清楚，但已人工確認是蟑螂。
 POSITIVE_DATASETS = [
     ("adriann", "cockroach-gkzut", 1),
-    #以下標籤不確定但應該都是蟑螂
-    ("school-project-cwbwv", "esp3902", 1), 
+    # 以下標籤命名不清楚，但已人工確認內容是蟑螂：
+    ("school-project-cwbwv", "esp3902", 1),
     ("guet-wnqb9", "-0ujgl", 3),
     ("yun-oykhq", "cockroach3-iwlo0", 1),
 ]
@@ -58,25 +62,38 @@ MIXED_INSECT_DATASETS = [
     ("new-workspace-v84mt", "cockroach-spider-scorpion-detection", 1),
     ("tini", "pest-detection-0sv8g", 5),
     ("air-uni-i206m", "pest-detection-yu4hv", 7),
-    ("pestmodel", "pest-detector-dataset", 5),
-    ("roboflow-public", "ip102-insect-pest-recognition", 2),
-    ("purizumo", "pestguard", 1),                          # ~20 類含 cockroach，Public Domain
-    ("jose-rizal-university", "pest-detection-2", 5),      # 703 張，含 Cockroach
+    ("pestmodel", "pest-detector-dataset", 11),
+    ("purizumo", "pestguard", 2),                          # ~20 類含 cockroach，Public Domain
+    ("jose-rizal-university", "pest-detection-2", 6),      # 703 張，含 Cockroach
     # 以下為使用者提供，跑時看 log 的「判定為蟑螂的類別」確認是否含蟑螂：
     ("insects-gt20t", "dataset-zxann", 1),
     ("ai-camp-project", "dynamite-duelers-project", 42),
-    ("mindcue", "combo-dataset", 2),
-    ("sams-sgift", "pest-detection-qbalv", 4),
-    ("lab-889z6", "1600_1200", 2),
-    ("patronusmobiles-workspace", "pest-detection-vuziq", 1),
+    ("mindcue", "combo-dataset", 3),
+    ("sams-sgift", "pest-detection-qbalv", 5),
+    ("lab-889z6", "1600_1200", 3),
+    ("patronusmobiles-workspace", "pest-detection-vuziq", 5),
     ("s-workspace-ddomg", "my-first-project_mix_mechanism", 2),
     ("mariam-eq11t", "insectdetectionn", 1),
     ("126-thanakool-wongsutthikul", "kusk-ai-pest-detect-2n8qu", 3),
-    ("purizumo", "pestguard", 2),
     ("tiger-emltm", "insects-9yf6s", 2),
     ("cc-bhzoo", "cockroach-u5xi2", 1),
     ("roach", "roach_detection", 5),
+    ("mayurworkspace", "forest_animal_identification", 1),
+    ("mushroomcare-research", "pestdetect", 1),
+    ("object-detection-cafff", "object_detection1-9xmkt", 3),
 ]
+
+# --- 第三類負樣本：商標 / 複雜紋理（整批當背景，不分流）---
+# 用途：壓低「把木紋、石頭、地毯、商標等誤判成蟑螂」的情況。
+# 這些資料集裡不會有蟑螂，所以整批當純背景負樣本即可。
+HARD_BG_DATASETS = [
+    ("data6000", "brand-logo-recognition-yolov8", 1),   # 503 張品牌商標
+    ("fyp1-aidez", "logo-juzxl", 1),                    # 5440 張各種logo
+    ("ai-dataset-8dqwo", "carpet-rjju3", 2),            # 201 張地毯紋理
+]
+# 本地紋理資料夾：把你自己蒐集的木紋/石頭/大理石/布料等圖片
+# 放進腳本同層的 my_textures/ 資料夾，會自動當背景負樣本（最對症）。
+LOCAL_TEXTURE_DIR = "my_textures"
 
 random.seed(42)
 WORK_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -87,7 +104,7 @@ MERGED = os.path.join(WORK_DIR, "merged_roach")
 # 判斷某類別名是否屬於蟑螂（全部轉小寫比對）
 # 涵蓋：cockroach、roach、nymph（蟑螂若蟲）、蟑螂、學名 periplaneta/blattella 等
 # 排除：tribolium（赤擬穀盜，非蟑螂）等易誤判詞
-ROACH_KEYWORDS = ["cockroach", "Cockroach", "roach", "nymph", "蟑螂", "periplaneta", "blattodea", "blattella", "blatta", "American Cockroach"]
+ROACH_KEYWORDS = ["cockroach", "roach", "nymph", "蟑螂", "periplaneta", "blattodea", "blattella", "blatta"]
 ROACH_EXCLUDE = ["tribolium", "approach", "broach"]
 
 # 模糊類別：名稱無法判斷裡面是不是蟑螂。
@@ -137,7 +154,7 @@ def check_api_key():
 
 
 def download_positives(rf):
-    print("=" * 56, "\n[1/4] 下載標準蟑螂正樣本\n", "=" * 56)
+    print("=" * 56, "\n[1/5] 下載標準蟑螂正樣本\n", "=" * 56)
     locs = []
     for ws, proj, ver in POSITIVE_DATASETS:
         try:
@@ -155,7 +172,7 @@ def download_positives(rf):
 
 def process_mixed_insects(rf):
     """下載昆蟲綜合資料集，逐張分流：含蟑螂→正樣本(清洗標籤)，不含→純背景負樣本"""
-    print("=" * 56, "\n[2/4] 處理昆蟲綜合資料集（萃取正樣本 + 篩選背景）\n", "=" * 56)
+    print("=" * 56, "\n[2/5] 處理昆蟲綜合資料集（萃取正樣本 + 篩選背景）\n", "=" * 56)
     mixed_pos_pairs = []
     pure_neg_imgs = []
 
@@ -236,7 +253,7 @@ def process_mixed_insects(rf):
 
 
 def download_negative_coco():
-    print("=" * 56, "\n[3/4] 下載 COCO 一般物體負樣本\n", "=" * 56)
+    print("=" * 56, "\n[3/5] 下載 COCO 一般物體負樣本\n", "=" * 56)
     coco_dir = os.path.join(NEG_DIR, "coco")
     os.makedirs(coco_dir, exist_ok=True)
     zip_path = os.path.join(coco_dir, "val2017.zip")
@@ -262,6 +279,40 @@ def download_negative_coco():
     random.shuffle(imgs)
     print(f"  取得 {min(len(imgs), MAX_NEG_COCO)} 張 COCO 背景圖")
     return imgs[:MAX_NEG_COCO]
+
+
+def download_hard_backgrounds(rf):
+    """第三類負樣本：商標 + 紋理（整批當背景，不分流）+ 本地紋理資料夾"""
+    print("=" * 56, "\n[4/5] 下載商標/紋理硬背景負樣本\n", "=" * 56)
+    imgs = []
+    # 1) Roboflow 上的商標 / 紋理資料集
+    for ws, proj, ver in HARD_BG_DATASETS:
+        try:
+            print(f"下載 {ws}/{proj} v{ver} ...")
+            d = rf.workspace(ws).project(proj).version(ver).download(
+                "yolov8", location=os.path.join(NEG_DIR, "hardbg_" + proj)
+            )
+            got = glob.glob(f"{d.location}/*/images/*")
+            imgs.extend(got)
+            print(f"  OK: +{len(got)} 張")
+        except Exception as e:
+            print(f"  跳過 ({proj}): {str(e)[:100]}")
+
+    # 2) 本地自備紋理資料夾（最對症：放你實際被誤判的木紋/石頭/地毯等）
+    local_dir = os.path.join(WORK_DIR, LOCAL_TEXTURE_DIR)
+    if os.path.isdir(local_dir):
+        local = []
+        for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp"):
+            local.extend(glob.glob(os.path.join(local_dir, "**", ext), recursive=True))
+        if local:
+            print(f"  本地 {LOCAL_TEXTURE_DIR}/：+{len(local)} 張")
+            imgs.extend(local)
+    else:
+        print(f"  （提示：可建立 {LOCAL_TEXTURE_DIR}/ 資料夾放自備紋理圖，效果最好）")
+
+    random.shuffle(imgs)
+    print(f"  硬背景負樣本合計取用 {min(len(imgs), MAX_NEG_HARDBG)} 張")
+    return imgs[:MAX_NEG_HARDBG]
 
 
 def remap_label(src, dst):
@@ -306,7 +357,7 @@ def collect_positive_pairs(locs):
 
 
 def build_dataset(pos_pairs, neg_imgs):
-    print("=" * 56, "\n[4/4] 合併資料集並切分\n", "=" * 56)
+    print("=" * 56, "\n[5/5] 合併資料集並切分\n", "=" * 56)
     for split in ["train", "valid"]:
         os.makedirs(f"{MERGED}/{split}/images", exist_ok=True)
         os.makedirs(f"{MERGED}/{split}/labels", exist_ok=True)
@@ -401,14 +452,16 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     neg_coco = download_negative_coco()
+    neg_hardbg = download_hard_backgrounds(rf)
     pos_pairs = collect_positive_pairs(pos) + mixed_pos_pairs
-    neg_all = neg_insects + neg_coco
+    neg_all = neg_insects + neg_coco + neg_hardbg
 
     print("\n資料流統計：")
     print(f"  - 標準集正樣本: {len(pos_pairs) - len(mixed_pos_pairs)} 張")
     print(f"  - 昆蟲集萃取正樣本: {len(mixed_pos_pairs)} 張")
     print(f"  - 總正樣本: {len(pos_pairs)} 張")
-    print(f"  - 總背景負樣本: {len(neg_all)} 張 (昆蟲背景 {len(neg_insects)} + COCO {len(neg_coco)})")
+    print(f"  - 總背景負樣本: {len(neg_all)} 張 "
+          f"(昆蟲 {len(neg_insects)} + COCO {len(neg_coco)} + 商標/紋理 {len(neg_hardbg)})")
 
     data_yaml = build_dataset(pos_pairs, neg_all)
     best = train(data_yaml)
