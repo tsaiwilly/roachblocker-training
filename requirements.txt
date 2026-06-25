@@ -1,8 +1,8 @@
 # RoachBlocker training dependencies
-# YOLO11 requires ultralytics >= 8.3.0
-ultralytics>=8.3.0
+# YOLO26 requires a recent ultralytics (8.4+). Upgrade with: pip install -U ultralytics
+ultralytics>=8.4.0
 roboflow
-onnx>=1.12.0
+onnx>=1.14.0
 onnxruntime
 onnxslim>=0.1.82
 pyyaml

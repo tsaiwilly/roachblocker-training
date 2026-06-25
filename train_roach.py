@@ -34,8 +34,8 @@ ROBOFLOW_API_KEY = "在這裡貼上你的_ROBOFLOW_API_KEY"
 VAL_RATIO = 0.2
 EPOCHS = 100
 IMG_SIZE = 416
-BATCH = 16                 # 11n 較輕量；OOM 再降到 8
-MODEL_ARCH = "yolo11n.pt"  # YOLO11 nano（ONNX 約 10MB）
+BATCH = 16                 # 26n 較輕量；OOM 再降到 8
+MODEL_ARCH = "yolo26n.pt"  # YOLO26 nano（NMS-free end2end，輸出 [1,300,6]）
 
 # 負樣本上限（只限制負樣本；正樣本一律全收，不設上限）
 MAX_NEG_INSECTS = 3000
@@ -409,23 +409,34 @@ def train(data_yaml):
     model = YOLO(MODEL_ARCH)
     results = model.train(
         data=data_yaml, epochs=EPOCHS, imgsz=IMG_SIZE, batch=BATCH,
-        patience=30, project="roach_blocker", name="yolo11n_v4", exist_ok=True,
+        patience=30, project="roach_blocker", name="yolo26n_v4", exist_ok=True,
     )
     return os.path.join(str(results.save_dir), "weights", "best.pt")
 
 
 def export_onnx(best_pt):
-    print("=" * 56, "\n匯出 ONNX\n", "=" * 56)
+    print("=" * 56, "\n匯出 ONNX（YOLO26 end2end / NMS-free）\n", "=" * 56)
     model = YOLO(best_pt)
     val = model.val()
     print(f"\n>>> mAP50: {val.box.map50:.3f}   mAP50-95: {val.box.map:.3f} <<<\n")
-    model.export(format="onnx", imgsz=IMG_SIZE, opset=12, simplify=True, dynamic=False)
+    # YOLO26 預設 end2end=True，輸出 [1,300,6]（xyxy+conf+cls，免 NMS）
+    # opset 用 19 以支援 end2end 所需算子；simplify 讓 onnxruntime-web 更易載入
+    model.export(format="onnx", imgsz=IMG_SIZE, opset=19, simplify=True, dynamic=False, end2end=True)
     onnx_src = best_pt.replace("best.pt", "best.onnx")
     onnx_dst = os.path.join(WORK_DIR, "roach.onnx")
     shutil.copy(onnx_src, onnx_dst)
     size_mb = os.path.getsize(onnx_dst) / 1024 / 1024
     print(f"完成！ONNX：{onnx_dst}  ({size_mb:.1f} MB)")
-    print("把 roach.onnx 放進擴充功能的 assets/ 覆蓋原檔即可。")
+    print("輸出格式應為 [1,300,6]。把 roach.onnx 放進擴充功能的 assets/ 覆蓋原檔即可。")
+    # 印出實際輸出形狀，方便確認 end2end 是否成功
+    try:
+        import onnx
+        m = onnx.load(onnx_dst)
+        for o in m.graph.output:
+            shape = [d.dim_value for d in o.type.tensor_type.shape.dim]
+            print(f"  [檢查] 輸出 '{o.name}' 形狀 = {shape}")
+    except Exception as e:
+        print(f"  （無法讀取輸出形狀: {str(e)[:60]}）")
 
 
 if __name__ == "__main__":
